@@ -28,7 +28,7 @@ def safe_public_url(raw, source=False):
         h=u.hostname.lower().rstrip('.')
         if source:
             return h in ('youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be','facebook.com','www.facebook.com','m.facebook.com','web.facebook.com','fb.watch','www.fb.watch')
-        return any(h==s or h.endswith('.'+s) for s in ('googlevideo.com','fbcdn.net','fbsbx.com','cdninstagram.com','youtube.com','googleusercontent.com'))
+        return any(h==s or h.endswith('.'+s) for s in ('googlevideo.com','fbcdn.net','fbsbx.com','cdninstagram.com','youtube.com','googleusercontent.com','smvd.xyz'))
     except Exception: return False
 
 def youtube_id(u):

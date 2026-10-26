@@ -14,6 +14,11 @@ LOCK = threading.Lock()
 MAX_REDIRECTS = 10
 MEDIA_HOSTS = ('googlevideo.com', 'fbcdn.net', 'fbsbx.com', 'cdninstagram.com', 'googleusercontent.com', 'smvd.xyz')
 SOURCE_HOSTS = ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be', 'facebook.com', 'www.facebook.com', 'm.facebook.com', 'web.facebook.com', 'fb.watch', 'www.fb.watch')
+YOUTUBE_HOSTS = ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be')
+# Set YOUTUBE_URL_ACCESS=proxied on Render only after reviewing RapidAPI billing.
+YOUTUBE_URL_ACCESS = os.getenv('YOUTUBE_URL_ACCESS', 'normal').lower()
+if YOUTUBE_URL_ACCESS not in ('normal', 'proxied'):
+    YOUTUBE_URL_ACCESS = 'normal'
 
 @app.after_request
 def headers(response):
@@ -33,56 +38,54 @@ def safe_url(raw, source=False):
         if u.scheme != 'https' or not u.hostname or u.username or u.password or u.port not in (None, 443):
             return False
         host = u.hostname.lower().rstrip('.')
-        if source:
-            return host in SOURCE_HOSTS
-        return allowed_host(host, MEDIA_HOSTS)
+        return host in SOURCE_HOSTS if source else allowed_host(host, MEDIA_HOSTS)
     except (ValueError, TypeError):
         return False
 
 def validate_dns(url):
-    """Reject private/loopback DNS answers. DNS rebinding needs network-level egress rules too."""
     host = urlparse(url).hostname
     try:
-        results = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-        if not results:
-            raise ValueError('Media host DNS lookup failed')
-        for info in results:
-            ip = ipaddress.ip_address(info[4][0])
-            if not ip.is_global:
+        answers = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        if not answers:
+            raise ValueError('Media DNS lookup failed')
+        for answer in answers:
+            if not ipaddress.ip_address(answer[4][0]).is_global:
                 raise ValueError('Media host resolves to a non-public IP')
     except socket.gaierror as exc:
-        raise ValueError('Media host DNS lookup failed') from exc
+        raise ValueError('Media DNS lookup failed') from exc
 
 def youtube_id(url):
     p = urlparse(url)
-    host = (p.hostname or '').lower()
-    if host in ('youtu.be', 'www.youtu.be'):
-        vid = p.path.strip('/').split('/')[0]
+    if p.hostname in ('youtu.be', 'www.youtu.be'):
+        value = p.path.strip('/').split('/')[0]
     elif re.match(r'^/(shorts|live|embed)/', p.path):
-        vid = p.path.split('/')[2]
+        value = p.path.split('/')[2]
     else:
-        vid = parse_qs(p.query).get('v', [''])[0]
-    return vid if re.fullmatch(r'[A-Za-z0-9_-]{11}', vid) else None
+        value = parse_qs(p.query).get('v', [''])[0]
+    return value if re.fullmatch(r'[A-Za-z0-9_-]{11}', value) else None
 
 def sign(payload):
     raw = json.dumps(payload, separators=(',', ':')).encode()
-    sig = hmac.new(SIGN_KEY.encode(), raw, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(raw + sig).decode().rstrip('=')
+    signature = hmac.new(SIGN_KEY.encode(), raw, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(raw + signature).decode().rstrip('=')
 
 def unsign(token):
     if not token or len(token) > 150000:
         raise ValueError('Invalid token')
-    data = base64.urlsafe_b64decode(token + '=' * (-len(token) % 4))
-    if len(data) < 33:
-        raise ValueError('Invalid token')
-    raw, sig = data[:-32], data[-32:]
-    expected = hmac.new(SIGN_KEY.encode(), raw, hashlib.sha256).digest()
-    if not hmac.compare_digest(expected, sig):
-        raise ValueError('Invalid token signature')
-    payload = json.loads(raw)
-    if payload['exp'] < time.time():
-        raise ValueError('Links expired; search again')
-    return payload
+    try:
+        data = base64.urlsafe_b64decode(token + '=' * (-len(token) % 4))
+        if len(data) < 33:
+            raise ValueError('Invalid token')
+        raw, signature = data[:-32], data[-32:]
+        expected = hmac.new(SIGN_KEY.encode(), raw, hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, signature):
+            raise ValueError('Invalid signature')
+        payload = json.loads(raw)
+        if payload['exp'] < time.time():
+            raise ValueError('Links expired; search again')
+        return payload
+    except (TypeError, KeyError, json.JSONDecodeError, base64.binascii.Error) as exc:
+        raise ValueError('Invalid token') from exc
 
 def clean_items(data, kind):
     items = []
@@ -103,85 +106,93 @@ def home():
 
 @app.get('/health')
 def health():
-    return jsonify(status='ok', ffmpeg=bool(shutil.which('ffmpeg')), ffprobe=bool(shutil.which('ffprobe')), configured=bool(API_KEY and len(SIGN_KEY) >= 24))
+    return jsonify(status='ok', ffmpeg=bool(shutil.which('ffmpeg')),
+                   ffprobe=bool(shutil.which('ffprobe')),
+                   configured=bool(API_KEY and len(SIGN_KEY) >= 24),
+                   youtubeUrlAccess=YOUTUBE_URL_ACCESS)
 
 @app.post('/api/inspect')
 def inspect():
     if not API_KEY or len(SIGN_KEY) < 24:
         return fail('Configure RAPIDAPI_KEY and SIGNING_SECRET (24+ characters) in Render', 503)
-    source = (request.get_json(silent=True) or {}).get('url', '')
+    data = request.get_json(silent=True)
+    source = data.get('url', '') if isinstance(data, dict) else ''
     if not isinstance(source, str) or len(source) > 2500 or not safe_url(source, True):
         return fail('Enter a supported YouTube or Facebook HTTPS link')
-    host = urlparse(source).hostname.lower()
-    is_youtube = host in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be')
+    is_youtube = urlparse(source).hostname.lower() in YOUTUBE_HOSTS
     if is_youtube:
         vid = youtube_id(source)
         if not vid:
             return fail('Invalid YouTube video ID')
         path = '/youtube/v3/video/details'
-        params = {'videoId': vid, 'urlAccess': 'normal', 'getTranscript': 'false'}
+        params = {'videoId': vid, 'urlAccess': YOUTUBE_URL_ACCESS, 'getTranscript': 'false'}
     else:
         path = '/facebook/v3/post/details'
         params = {'url': source}
     try:
-        r = requests.get('https://' + API_HOST + path, params=params,
-                         headers={'x-rapidapi-key': API_KEY, 'x-rapidapi-host': API_HOST}, timeout=(10, 35))
-        if not r.ok:
-            return fail('RapidAPI returned HTTP ' + str(r.status_code), 502)
-        data = r.json()
+        response = requests.get('https://' + API_HOST + path, params=params,
+                                headers={'x-rapidapi-key': API_KEY, 'x-rapidapi-host': API_HOST},
+                                timeout=(10, 35))
+        if not response.ok:
+            app.logger.warning('RapidAPI HTTP %s for %s', response.status_code, 'YouTube' if is_youtube else 'Facebook')
+            return fail('RapidAPI returned HTTP ' + str(response.status_code), 502)
+        result = response.json()
+        if not isinstance(result, dict):
+            return fail('Unexpected RapidAPI response', 502)
     except (requests.RequestException, ValueError):
         return fail('RapidAPI connection or response error', 502)
-    videos, audios = clean_items(data, 'videos'), clean_items(data, 'audios')
+    videos, audios = clean_items(result, 'videos'), clean_items(result, 'audios')
     if not videos:
-        return fail('No usable video links returned. API or media access may be restricted', 404)
+        return fail('No usable direct video links returned; media access may be restricted', 404)
     token = sign({'videos': videos, 'audios': audios, 'exp': int(time.time()) + 600})
     return jsonify(videos=[{'label': v['label'], 'index': i} for i, v in enumerate(videos)],
                    audios=[{'label': a['label'], 'index': i} for i, a in enumerate(audios)],
                    token=token, platform='YouTube' if is_youtube else 'Facebook')
 
-def download_stream(url, destination):
-    """Follow bounded, validated redirects, detect loops, and never silently accept HTML."""
+def download_stream(url, destination, stream_kind):
     seen = set()
     session = requests.Session()
-    session.trust_env = False
+    # Retain default proxy environment if configured by the hosting provider.
     try:
-        for hop in range(MAX_REDIRECTS + 1):
+        for _ in range(MAX_REDIRECTS + 1):
             if not safe_url(url):
-                raise ValueError('Unsupported media redirect host: ' + str(urlparse(url).hostname))
+                raise ValueError(stream_kind + ': unsupported media host')
             if url in seen:
-                raise ValueError('Media redirect loop detected; API URL may be expired or blocked')
+                raise ValueError(stream_kind + ': media redirect loop')
             seen.add(url)
             validate_dns(url)
             with session.get(url, stream=True, allow_redirects=False, timeout=(10, 45),
-                             headers={'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}) as r:
-                if r.status_code in (301, 302, 303, 307, 308):
-                    target = r.headers.get('Location')
+                             headers={'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}) as response:
+                if response.status_code in (301, 302, 303, 307, 308):
+                    target = response.headers.get('Location')
                     if not target:
-                        raise ValueError('Media redirect has no Location header')
-                    url = urljoin(r.url, target)
+                        raise ValueError(stream_kind + ': redirect without Location')
+                    url = urljoin(response.url, target)
                     continue
-                if r.status_code in (401, 403, 404, 410, 429):
-                    raise ValueError('Media server returned HTTP ' + str(r.status_code) + '; link may have expired or require proxy access')
-                r.raise_for_status()
-                content_type = r.headers.get('Content-Type', '').lower()
+                if response.status_code in (401, 403, 404, 410, 429):
+                    app.logger.warning('%s media HTTP %s from host %s', stream_kind,
+                                       response.status_code, urlparse(url).hostname)
+                    raise ValueError(stream_kind + ': media server HTTP ' + str(response.status_code) +
+                                     '; URL may be expired or restricted. Search again or review proxy access')
+                response.raise_for_status()
+                content_type = response.headers.get('Content-Type', '').lower()
                 if 'text/html' in content_type or 'application/json' in content_type:
-                    raise ValueError('Media URL returned a web page instead of video/audio')
-                length = r.headers.get('Content-Length')
+                    raise ValueError(stream_kind + ': media URL returned HTML/JSON')
+                length = response.headers.get('Content-Length')
                 if length and length.isdigit() and int(length) > MAX_BYTES:
-                    raise ValueError('Media exceeds server size limit')
+                    raise ValueError(stream_kind + ': file exceeds media size limit')
                 total = 0
-                with open(destination, 'wb') as f:
-                    for chunk in r.iter_content(256 * 1024):
-                        if not chunk:
-                            continue
-                        total += len(chunk)
-                        if total > MAX_BYTES:
-                            raise ValueError('Media exceeds server size limit')
-                        f.write(chunk)
+                with open(destination, 'wb') as output:
+                    for chunk in response.iter_content(256 * 1024):
+                        if chunk:
+                            total += len(chunk)
+                            if total > MAX_BYTES:
+                                raise ValueError(stream_kind + ': file exceeds media size limit')
+                            output.write(chunk)
                 if total < 100:
-                    raise ValueError('Empty media stream')
+                    raise ValueError(stream_kind + ': empty media stream')
                 return
-        raise ValueError('Too many media redirects; source URL may require proxied access')
+        raise ValueError(stream_kind + ': too many redirects')
     finally:
         session.close()
 
@@ -200,18 +211,20 @@ def cleanup():
 def merge():
     if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
         return fail('FFmpeg/FFprobe missing in Render image', 503)
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return fail('Invalid JSON body')
     try:
         payload = unsign(str(data.get('token', '')))
         vi = int(data.get('video', -1))
         ai = int(data.get('audio', -1))
         if not 0 <= vi < len(payload['videos']):
             raise ValueError('Invalid video selection')
-        if ai < -1 or ai >= len(payload['audios']):
+        if not -1 <= ai < len(payload['audios']):
             raise ValueError('Invalid audio selection')
         video = payload['videos'][vi]['url']
         audio = payload['audios'][ai]['url'] if ai >= 0 else None
-    except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
+    except (ValueError, KeyError, IndexError, TypeError):
         return fail('Invalid or expired selection. Search again')
     cleanup()
     with LOCK:
@@ -222,22 +235,23 @@ def merge():
     output = os.path.join(OUT_DIR, job + '.mp4')
     try:
         video_path = os.path.join(directory, 'video.bin')
-        download_stream(video, video_path)
+        download_stream(video, video_path, 'VIDEO')
         cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', video_path]
         if audio:
             audio_path = os.path.join(directory, 'audio.bin')
-            download_stream(audio, audio_path)
+            download_stream(audio, audio_path, 'AUDIO')
             cmd += ['-i', audio_path, '-map', '0:v:0', '-map', '1:a:0']
         else:
             cmd += ['-map', '0:v:0', '-map', '0:a:0?']
-        cmd += ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-t', '1800', output]
+        cmd += ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart', '-t', '1800', output]
         run = subprocess.run(cmd, capture_output=True, text=True, timeout=105)
         if run.returncode:
             raise ValueError('FFmpeg failed: ' + run.stderr[-250:])
         probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a',
                                 '-show_entries', 'stream=index', '-of', 'csv=p=0', output],
                                capture_output=True, text=True, timeout=10)
-        if not probe.stdout.strip():
+        if probe.returncode or not probe.stdout.strip():
             raise ValueError('No audio track in output. Select a separate audio stream and retry')
         with LOCK:
             JOBS[job] = time.time() + 600
@@ -257,10 +271,11 @@ def download(job):
     cleanup()
     with LOCK:
         valid = JOBS.get(job, 0) > time.time()
-    if not valid or not os.path.isfile(os.path.join(OUT_DIR, job + '.mp4')):
+    output = os.path.join(OUT_DIR, job + '.mp4')
+    if not valid or not os.path.isfile(output):
         abort(404)
-    return send_file(os.path.join(OUT_DIR, job + '.mp4'), as_attachment=True,
-                     download_name='video_with_audio.mp4', mimetype='video/mp4')
+    return send_file(output, as_attachment=True, download_name='video_with_audio.mp4', mimetype='video/mp4')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '10000')))
+    

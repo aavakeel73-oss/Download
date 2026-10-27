@@ -32,8 +32,21 @@ def public_dns(value):
         return False
 
 def ydl_opts(extra=None):
-    opts={'quiet':True,'no_warnings':True,'noplaylist':True,'socket_timeout':18,'retries':1,'fragment_retries':1,'extractor_retries':1,'skip_download':True,'cachedir':False,'ignoreerrors':False}
-    if extra: opts.update(extra)
+    opts={
+        'quiet': False,
+        'no_warnings': False,
+        'verbose': True,
+        'noplaylist': True,
+        'socket_timeout': 18,
+        'retries': 1,
+        'fragment_retries': 1,
+        'extractor_retries': 1,
+        'skip_download': True,
+        'cachedir': False,
+        'ignoreerrors': False
+    }
+    if extra:
+        opts.update(extra)
     return opts
 
 def prune():

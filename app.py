@@ -53,9 +53,37 @@ def no_cache(resp):
 @app.get('/')
 def home(): return render_template('index.html')
 
+
 @app.get('/health')
 def health():
-    return jsonify(status='ok',backend='yt-dlp',ffmpeg=bool(shutil.which('ffmpeg')),ffprobe=bool(shutil.which('ffprobe')))
+    import importlib.util
+
+    deno_path = shutil.which('deno')
+    deno_version = None
+
+    if deno_path:
+        try:
+            result = subprocess.run(
+                ['deno', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=8
+            )
+            deno_version = result.stdout.splitlines()[0] if result.returncode == 0 else None
+        except Exception:
+            pass
+
+    return jsonify(
+        status='ok',
+        backend='yt-dlp',
+        yt_dlp_version=yt_dlp.version.__version__,
+        deno_installed=bool(deno_path),
+        deno_version=deno_version,
+        ejs_installed=importlib.util.find_spec('yt_dlp_ejs') is not None,
+        ffmpeg=bool(shutil.which('ffmpeg')),
+        ffprobe=bool(shutil.which('ffprobe'))
+    )
+    
 
 @app.post('/api/inspect')
 def inspect():

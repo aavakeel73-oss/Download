@@ -24,4 +24,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+              - name: Check yt-dlp files
+        run: |
+          ls -lh yt-dlp yt-dlp_bin 2>&1 || true
+          python3 -m yt_dlp --version || true
   

@@ -16,7 +16,7 @@ from datetime import datetime
 
 FFMPEG_PATH = shutil.which('ffmpeg') or '/usr/bin/ffmpeg'
 FFPROBE_PATH = shutil.which('ffprobe') or '/usr/bin/ffprobe'
-YTDLP_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yt-dlp_bin'))
+YTDLP_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yt-dlp'))
 
 
 def safe_log(level: str, message: str, meta: dict = None):

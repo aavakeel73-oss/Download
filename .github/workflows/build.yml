@@ -3,7 +3,8 @@ name: StreamRip Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -23,11 +24,30 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Build frontend
-              - name: Build frontend
         run: npm run build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
 
       - name: Check yt-dlp files
         run: |
+          echo "Checking yt-dlp files..."
           ls -lh yt-dlp yt-dlp_bin 2>&1 || true
-          python3 -m yt_dlp --version || true
-  
+
+          echo "Checking Python yt-dlp version..."
+          python3 -m yt_dlp --version
+
+          echo "Checking FFmpeg..."
+          ffmpeg -version | head -n 1
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: streamrip-frontend
+          path: dist/
+          

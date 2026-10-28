@@ -40,34 +40,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          ffmpeg -version
-          ffprobe -version
- - name: Make yt-dlp executable
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
+      - name: Make yt-dlp executable
         run: |
           chmod +x yt-dlp
           ./yt-dlp --version
 
       - name: Check yt-dlp files
         run: |
-          echo "Checking yt-dlp file..."
+          echo "Checking yt-dlp..."
           ls -lh yt-dlp
-          
-          echo "Checking yt-dlp file..."
-          ls -lh yt-dlp
-
-          echo "Checking Python yt-dlp..."
-          python3 -m yt_dlp --version
-
-          echo "Checking FFmpeg..."
-          ffmpeg -version | head -n 1
-
-          echo "Checking FFprobe..."
-          ffprobe -version | head -n 1
+          python -m yt_dlp --version
 
       - name: Validate Python code
         run: |
-          python3 -m py_compile app.py
-          python3 -m py_compile video_processor.py
+          python -m py_compile app.py
+          python -m py_compile video_processor.py
 
       - name: Upload frontend build
         uses: actions/upload-artifact@v4

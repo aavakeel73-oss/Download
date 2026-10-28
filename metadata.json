@@ -1,0 +1,6 @@
+{
+  "name": "StreamRip - YouTube & Facebook Video Downloader",
+  "description": "High-performance, secure YouTube and Facebook Video Downloader with multi-resolution MP4/MP3 extraction, real-time download manager, and complete deployable Python Flask package.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

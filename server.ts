@@ -116,7 +116,12 @@ app.post('/api/analyze', (req: Request, res: Response) => {
     try {
       const result = JSON.parse(stdout);
       if (!result.success) {
-        const statusCode = result.statusCode || 403;
+        const statusCode =
+  Number.isInteger(result.statusCode) &&
+  result.statusCode >= 400 &&
+  result.statusCode <= 599
+    ? result.statusCode
+    : 502;
         console.warn(JSON.stringify({
           timestamp: new Date().toISOString(),
           level: 'WARN',

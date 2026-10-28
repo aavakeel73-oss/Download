@@ -43,7 +43,10 @@ jobs:
           ffmpeg -version
           ffprobe -version
 
-      - name: Check yt-dlp files
+            - name: Make yt-dlp executable
+        run: |
+          chmod +x yt-dlp
+          ./yt-dlp --version- name: Check yt-dlp files
         run: |
           echo "Checking yt-dlp file..."
           ls -lh yt-dlp

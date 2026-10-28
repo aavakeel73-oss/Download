@@ -11,7 +11,7 @@ import fs from 'fs';
 
 const app = express();
 const PORT = 3000;
-const YTDLP_PATH = path.resolve(process.cwd(), 'yt-dlp_bin');
+const YTDLP_PATH = path.resolve(process.cwd(), 'yt-dlp');
 const CACHE_DIR = path.resolve('/tmp/streamrip_cache');
 
 if (!fs.existsSync(CACHE_DIR)) {

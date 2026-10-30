@@ -106,4 +106,3 @@ if __name__ == '__main__':
     else:
         ok, details = run_ffprobe_validation(sys.argv[2])
         print(json.dumps({'valid': ok, 'details': details}, ensure_ascii=False))
-        

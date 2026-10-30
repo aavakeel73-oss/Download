@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from flask import Flask, request, jsonify, render_template, send_file, abort
 from flask_cors import CORS
 import yt_dlp
-from video_processor import analyze_video as analyze_youtube, error_result, run_ffprobe_validation, safe_log
+from video_processor import error_result, run_ffprobe_validation, safe_log
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
@@ -25,7 +25,6 @@ MAX_JOBS = 20
 os.makedirs(TEMP_DOWNLOAD_DIR, exist_ok=True)
 download_jobs = {}
 jobs_lock = threading.Lock()
-YOUTUBE_HOSTS = {'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'}
 FACEBOOK_HOSTS = {'facebook.com', 'www.facebook.com', 'm.facebook.com', 'web.facebook.com', 'fb.watch'}
 
 
@@ -37,8 +36,8 @@ def validate_url_security(url):
         host = (parsed.hostname or '').lower().rstrip('.')
         if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.port not in (None, 443):
             return False, 'केवल मान्य HTTPS लिंक स्वीकार हैं।'
-        if host not in YOUTUBE_HOSTS | FACEBOOK_HOSTS:
-            return False, 'केवल YouTube और Facebook लिंक स्वीकार हैं।'
+        if host not in FACEBOOK_HOSTS:
+            return False, 'केवल Facebook वीडियो और Reels लिंक स्वीकार हैं।'
         # Resolve the approved host to reject local/private destination addresses.
         for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM):
             ip = ipaddress.ip_address(item[4][0])
@@ -114,18 +113,11 @@ def analyze_route():
         return jsonify({'success': False, 'error': result}), 400
     host = urlsplit(result).hostname
     try:
-        if host in YOUTUBE_HOSTS:
-            analysis = analyze_youtube(result)
-            if not analysis['success']:
-                return jsonify({k: v for k, v in analysis.items() if k != 'statusCode'}), analysis.get('statusCode', 502)
-            info = analysis['info']
-            platform = 'youtube'
-        else:
-            # Facebook's established yt-dlp extraction path remains unchanged.
-            with yt_dlp.YoutubeDL({'skip_download': True, 'quiet': True, 'no_warnings': True,
-                                   'extract_flat': False, 'socket_timeout': 15}) as ydl:
-                info = ydl.extract_info(result, download=False)
-            platform = 'facebook'
+        # Facebook-only: keep the existing extraction path.
+        with yt_dlp.YoutubeDL({'skip_download': True, 'quiet': True, 'no_warnings': True,
+                               'extract_flat': False, 'socket_timeout': 15}) as ydl:
+            info = ydl.extract_info(result, download=False)
+        platform = 'facebook'
         if not isinstance(info, dict):
             return jsonify({'success': False, 'error': 'वीडियो जानकारी नहीं मिली।'}), 404
         return jsonify({'success': True, 'metadata': {
@@ -248,4 +240,3 @@ def download_file(job_id):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '10000')), debug=False)
-    

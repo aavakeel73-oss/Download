@@ -35,11 +35,16 @@ def options():
 def probe(path, audio_only=False):
     if not path.is_file() or path.stat().st_size < 1024: raise ValueError('फ़ाइल खाली या अधूरी है।')
     if not shutil.which('ffprobe'): raise RuntimeError('सर्वर पर FFprobe उपलब्ध नहीं है।')
-    p=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_type:format=duration','-of','json',str(path)],capture_output=True,text=True,timeout=30)
+    p=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_type,codec_name:format=duration','-of','json',str(path)],capture_output=True,text=True,timeout=30)
     if p.returncode: raise ValueError('FFprobe फ़ाइल पढ़ नहीं पाया।')
     streams=json.loads(p.stdout).get('streams',[])
     types={s.get('codec_type') for s in streams}
     if 'audio' not in types or (not audio_only and 'video' not in types): raise ValueError('फ़ाइल में आवश्यक ऑडियो/वीडियो स्ट्रीम नहीं मिली।')
+    if not audio_only:
+        video = next((x for x in streams if x.get('codec_type') == 'video'), {})
+        audio = next((x for x in streams if x.get('codec_type') == 'audio'), {})
+        if video.get('codec_name') != 'h264' or audio.get('codec_name') != 'aac':
+            raise ValueError('वीडियो मोबाइल के अनुकूल H.264/AAC में नहीं है।')
     return path.stat().st_size
 
 def update(jid, **fields):
@@ -92,7 +97,22 @@ def download():
             extension='.mp3' if audio else '.mp4'
             candidates=sorted(folder.glob('*'+extension),key=lambda p:p.stat().st_mtime,reverse=True)
             if not candidates: raise ValueError('आउटपुट फ़ाइल नहीं मिली।')
-            path=candidates[0]; size=probe(path,audio)
+            path=candidates[0]
+            if not audio:
+                details=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_type,codec_name','-of','json',str(path)],capture_output=True,text=True,timeout=30,check=True)
+                streams=json.loads(details.stdout).get('streams',[])
+                v=next((x.get('codec_name') for x in streams if x.get('codec_type')=='video'),None)
+                a=next((x.get('codec_name') for x in streams if x.get('codec_type')=='audio'),None)
+                if v!='h264' or a!='aac':
+                    update(jid,status='processing',progressPercent=97,speedFormatted='0 KB/s')
+                    compatible=folder/'compatible.mp4'
+                    cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(path),'-map','0:v:0','-map','0:a:0',
+                         '-c:v','copy' if v=='h264' else 'libx264','-preset','veryfast','-crf','23',
+                         '-pix_fmt','yuv420p','-c:a','copy' if a=='aac' else 'aac','-b:a','160k',
+                         '-movflags','+faststart',str(compatible)]
+                    subprocess.run(cmd,check=True,capture_output=True,timeout=900)
+                    path=compatible
+            size=probe(path,audio)
             if size>MAX_BYTES: raise ValueError('फ़ाइल निर्धारित सीमा से बड़ी है।')
             update(jid,status='completed',progressPercent=100,filePath=str(path),filename=f'Facebook_{jid[:8]}{extension}',fileSizeBytes=size,speedFormatted='0 KB/s')
         except Exception as e:
@@ -115,7 +135,7 @@ def file(jid):
     if not j or j['status']!='completed' or not j['filePath']:return jsonify(error='फ़ाइल तैयार नहीं है।'),404
     p=Path(j['filePath'])
     if not p.is_file():return jsonify(error='फ़ाइल उपलब्ध नहीं है।'),404
-    return send_file(p,as_attachment=True,download_name=j['filename'],conditional=True)
+    return send_file(p,as_attachment=True,download_name=j['filename'],mimetype='audio/mpeg' if p.suffix=='.mp3' else 'video/mp4',conditional=True)
 
 def cleanup():
     while True:

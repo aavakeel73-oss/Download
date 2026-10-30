@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamRip - Facebook Video Downloader</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="dark-mode">
+    <div class="glow-bg"></div>
+    <div class="app-container">
+        <header class="header">
+            <div class="brand">
+                <span class="logo-icon">⚡</span>
+                <h1>StreamRip</h1>
+                <span class="badge">PRO</span>
+            </div>
+            <div class="header-actions">
+                <button id="themeToggle" class="btn-icon" aria-label="Toggle theme">🌓</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="hero-section">
+                <h2>Facebook वीडियो डाउनलोडर</h2>
+                <p>उच्च गति, सुरक्षित और सुरक्षित 1080p, 4K MP4 और MP3 ऑडियो निष्कर्षण।</p>
+            </section>
+
+            <section class="card glass-card">
+                <div class="platform-tabs">
+                    <button class="tab active" data-platform="facebook">Facebook / Reels</button>
+                </div>
+
+                <div class="input-group">
+                    <input type="url" id="videoUrl" placeholder="यहाँ Facebook वीडियो लिंक पेस्ट करें..." autocomplete="off">
+                    <button id="clearBtn" class="btn-clear hidden">✕</button>
+                    <button id="pasteBtn" class="btn-secondary">पेस्ट</button>
+                    <button id="analyzeBtn" class="btn-primary">विश्लेषण करें</button>
+                </div>
+                <div id="statusMessage" class="status-msg"></div>
+            </section>
+
+            <!-- Video Preview Card -->
+            <section id="previewCard" class="card glass-card hidden">
+                <div class="preview-layout">
+                    <div class="thumbnail-wrapper">
+                        <img id="videoThumb" src="" alt="Video thumbnail">
+                        <span id="videoDuration" class="duration-tag">00:00</span>
+                    </div>
+                    <div class="video-info">
+                        <h3 id="videoTitle">वीडियो शीर्षक</h3>
+                        <p id="videoAuthor" class="author-name">चैनल / लेखक</p>
+                        <div id="formatList" class="format-grid">
+                            <!-- Quality buttons injected via JS -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Progress Tracker -->
+            <div id="progressModal" class="modal hidden">
+                <div class="modal-content glass-card">
+                    <h3 id="progressTitle">डाउनलोड प्रगति</h3>
+                    <div class="progress-bar-bg">
+                        <div id="progressBar" class="progress-bar-fill"></div>
+                    </div>
+                    <div class="progress-meta">
+                        <span id="progressPercent">0%</span>
+                        <span id="progressSpeed">0 KB/s</span>
+                    </div>
+                    <button id="cancelDlBtn" class="btn-danger">रद्द करें</button>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>© StreamRip · केवल अधिकृत एवं सार्वजनिक वीडियो डाउनलोड के लिए।</p>
+        </footer>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
